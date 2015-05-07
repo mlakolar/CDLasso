@@ -1,11 +1,10 @@
 module CDLasso
 
-import ProximalOPT.ActiveSet, ProximalOPT.active_set
-
 #######################################################################
 type LassoOptions
   max_inner_iter::Int64
   max_outer_iter::Int64
+  xtol::Float64
   gradtol::Float64
   zerothr::Float64
   printEvery::Int64
@@ -27,6 +26,37 @@ function LassoOptions(;max_inner_iter::Integer     = 200,
     printEvery
     )
 end
+
+#######################################################################
+
+type ActiveSet
+  indexes::Vector{Int64}
+  numActive::Int64
+end
+
+type GroupActiveSet{I}
+  groups::Vector{Int64}
+  numActive::Int64
+  groupToIndex::Vector{I}
+end
+
+function ActiveSet{T<:FloatingPoint}(
+    x::StridedArray{T};
+    options::LassoOptions = LassoOptions()
+    )
+  zero_thr = options.zerothr
+  numElem = length(x)
+  activeset = [1:numElem;]
+  numActive = 0
+  for j = 1:numElem
+    if abs(x[j]) >= zero_thr
+      numActive += 1
+      activeset[numActive], activeset[j] = activeset[j], activeset[numActive]
+    end
+  end
+  ActiveSet(activeset, numActive)
+end
+
 #######################################################################
 
 
@@ -139,7 +169,7 @@ function lasso!{T<:FloatingPoint}(
     options::LassoOptions   =   LassoOptions()
     )
   maxoutiter = options.max_outer_iter
-  activeset = active_set(ProximalOPT.ProxL1{T}, x)
+  activeset = ActiveSet(x; options=options)
 
   if activeset.numActive == 0
     _add_violator!(activeset, x, A, b, λ; options=options)
