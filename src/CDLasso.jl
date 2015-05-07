@@ -57,52 +57,6 @@ function ActiveSet{T<:FloatingPoint}(
   ActiveSet(activeset, numActive)
 end
 
-#######################################################################
-
-
-shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
-
-# computes x'A[:, j]
-function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int64, activeset::ActiveSet)
-  s = zero(T)
-  indexes = activeset.indexes
-  @inbounds for i=1:activeset.numActive
-    ind = indexes[i]
-    s += x[ind] * A[ind, j]
-  end
-  s
-end
-
-function _lasso!{T<:FloatingPoint}(
-    x::StridedVector{T},
-    A::StridedMatrix{T},
-    b::StridedVector{T},
-    λ::StridedVector{T},
-    activeset::ActiveSet;
-    options::LassoOptions   =   LassoOptions()
-    )
-
-  indexes = activeset.indexes
-  iter = 0
-  while true
-    iter += 1
-    maxUpdate = zero(T)
-    @inbounds for i=1:activeset.numActive
-      j = indexes[i]
-      S0 = _Axk(A, x, j, activeset) - A[j, j] * x[j] + b[j]
-      newValue = shrink(S0 / A[j, j], λ[j] / A[j,j])
-      if abs(x[j] - newValue) > maxUpdate
-        maxUpdate = abs(x[j] - newValue)
-      end
-      x[j] = newValue
-    end
-    if iter > options.max_inner_iter || maxUpdate < options.xtol
-      break
-    end
-  end
-  x
-end
-
 function _add_violator!{T<:FloatingPoint}(
     activeset::ActiveSet,
     x::StridedVector{T},
@@ -152,6 +106,56 @@ function _add_violator!{T<:FloatingPoint}(
   changed
 end
 
+#######################################################################
+
+shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
+
+#######################################################################
+
+# computes x'A[:, j]
+function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int64, activeset::ActiveSet)
+  s = zero(T)
+  indexes = activeset.indexes
+  for i=1:activeset.numActive
+    ind = indexes[i]
+    s += x[ind] * A[ind, j]
+  end
+  s
+end
+
+function _lasso!{T<:FloatingPoint}(
+    x::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    λ::StridedVector{T},
+    activeset::ActiveSet;
+    options::LassoOptions   =   LassoOptions()
+    )
+
+  indexes = activeset.indexes
+  iter = 0
+  while true
+    iter += 1
+    maxUpdate = zero(T)
+    for i=1:activeset.numActive
+      j = indexes[i]
+      S0 = _Axk(A, x, j, activeset) - A[j, j] * x[j] + b[j]
+      newValue = shrink(S0 / A[j, j], λ[j] / A[j,j])
+      if abs(newValue) > 1e4
+        @show S0, λ[j], i, j, A[j,j], activeset
+        error("agg")
+      end
+      if abs(x[j] - newValue) > maxUpdate
+        maxUpdate = abs(x[j] - newValue)
+      end
+      x[j] = newValue
+    end
+    if iter > options.max_inner_iter || maxUpdate < options.xtol
+      break
+    end
+  end
+  x
+end
 
 lasso!{T<:FloatingPoint}(
     x::StridedVector{T},
@@ -187,7 +191,6 @@ end
 ### todo:
 # feasible lasso
 # groups lasso
-
 
 
 end
