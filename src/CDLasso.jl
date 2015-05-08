@@ -139,15 +139,18 @@ function _lasso!{T<:FloatingPoint}(
     maxUpdate = zero(T)
     for i=1:activeset.numActive
       j = indexes[i]
-      S0 = _Axk(A, x, j, activeset) - A[j, j] * x[j] + b[j]
-      newValue = shrink(S0 / A[j, j], λ[j] / A[j,j])
-      if abs(newValue) > 1e4
-        @show S0, λ[j], i, j, A[j,j], activeset
-        error("agg")
-      end
+      a = A[j, j]
+      S0 = _Axk(A, x, j, activeset) - a * x[j] + b[j]
+      @show S0
+      newValue = shrink(-S0 / a, abs(λ[j] / a))
+#       if abs(newValue) > 1e4
+#         @show S0, λ[j], i, j, A[j,j], activeset
+#         error("agg")
+#       end
       if abs(x[j] - newValue) > maxUpdate
         maxUpdate = abs(x[j] - newValue)
       end
+      @show j, newValue
       x[j] = newValue
     end
     if iter > options.max_inner_iter || maxUpdate < options.xtol
@@ -179,8 +182,10 @@ function lasso!{T<:FloatingPoint}(
     _add_violator!(activeset, x, A, b, λ; options=options)
   end
 
+  @show activeset
   for outiter=1:maxoutiter
     _lasso!(x, A, b, λ, activeset; options=options)
+    @show x
     if ~_add_violator!(activeset, x, A, b, λ; options=options)
       break
     end
