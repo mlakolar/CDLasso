@@ -1,6 +1,8 @@
 module CDLasso
 
 import Base.LinAlg.BLAS
+import Base.LinAlg.SVD
+
 
 #######################################################################
 type LassoOptions
@@ -36,14 +38,17 @@ type ActiveSet
   numActive::Int64
 end
 
-type GroupActiveSet{I}
+type GroupActiveSet{T<:FloatingPoint, I}
   groups::Vector{Int64}
   numActive::Int64
   groupToIndex::Vector{I}
+  _res::Vector{T}
+  _svd_objects::Vector{Any}
+  _ub::Vector{T}
 end
 
 function ActiveSet{T<:FloatingPoint}(
-    x::StridedArray{T};
+    x::StridedVector{T};
     options::LassoOptions = LassoOptions()
     )
   zero_thr = options.zerothr
@@ -108,6 +113,110 @@ function _add_violator!{T<:FloatingPoint}(
   changed
 end
 
+function GroupActiveSet{T<:FloatingPoint, I}(
+    x::StridedVector{T},
+    groupToIndex::Vector{I};
+    options::LassoOptions = LassoOptions()
+    )
+  _res = zeros(x)
+  zero_thr = options.zerothr
+  numElem = length(groupToIndex)
+  groups = [1:numElem;]
+  numActive = 0
+  for gi = 1:numElem
+    if vecnorm(sub(x, groupToIndex[gi])) >= zero_thr
+      numActive += 1
+      groups[numActive], groups[gi] = groups[gi], groups[numActive]
+    end
+  end
+  GroupActiveSet{T, I}(groups, numActive, groupToIndex, _res, Array(Any, numElem), zeros(numElem))
+end
+
+
+function _group_norm{T<:FloatingPoint}(
+    x::StridedVector{T},
+    activeset::GroupActiveSet{T},
+    j::Int64
+    )
+  gj = activeset.groupToIndex[j]
+  r = zero(T)
+  @inbounds for i in gj
+    r += x[i]^2.
+  end
+  sqrt(r)
+end
+
+function _fill_zero!{T<:FloatingPoint, I}(
+    x::StridedVector{T},
+    activeset::GroupActiveSet{T, I},
+    j::Int64
+    )
+  gj = activeset.groupToIndex[j]
+  @inbounds for i in gj
+    x[i] = zero(T)
+  end
+  x
+end
+
+
+function _add_violator!{T<:FloatingPoint}(
+    activeset::GroupActiveSet,
+    x::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    λ::StridedVector{T};
+    options::LassoOptions   =   LassoOptions()
+    )
+  changed = false
+
+  zerothr = options.zerothr
+  groups = activeset.groups
+  numActive = activeset.numActive
+  groupToIndex = activeset.groupToIndex
+  numElem = length(groups)
+  # check for things to be removed from the active set
+  i = 0
+  @inbounds while i < numActive
+    i = i + 1
+    t = groups[i]
+    if _group_norm(x, activeset, t) < zerothr
+      _fill_zero!(x, activeset, t)
+      changed = true
+      groups[numActive], groups[i] = groups[i], groups[numActive]
+      numActive -= 1
+      i = i - 1
+    end
+  end
+  activeset.numActive = numActive
+
+  res = activeset._res
+  I = 0
+  V = zero(T)
+  @inbounds for i=numActive+1:numElem
+    t = groups[i]
+    _Axkpb!(res, A, b, x, t, activeset)
+    group_norm = _group_norm(res, activeset, t)
+    nV = group_norm - λ[t]
+    if V < nV
+      I = i
+      V = nV
+    end
+  end
+  if I > 0 && V > options.gradtol
+    gi = groups[I]
+    if ~isdefined(activeset._svd_objects, gi)
+      activeset._svd_objects[gi] = svdfact(sub(A, groupToIndex[gi], groupToIndex[gi]))
+    end
+    changed = true
+    numActive += 1
+    groups[numActive], groups[I] = groups[I], groups[numActive]
+  end
+  activeset.numActive = numActive
+  changed
+end
+
+
+
 #######################################################################
 
 shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
@@ -124,6 +233,42 @@ function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int
   end
   s
 end
+
+
+
+# computes x[-gj]'A[-gj, gj] + b[gj]'
+function _Axkpb!{T<:FloatingPoint}(
+    res::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    x::StridedVector{T},
+    j::Int64,
+    activeset::GroupActiveSet
+    )
+
+  groups = activeset.groups
+  numActive = activeset.numActive
+  groupToIndex = activeset.groupToIndex
+
+  group_j = groupToIndex[j]
+  indC = 0
+  for column_ind in group_j
+    res[column_ind] = zero(T)
+    for i=1:activeset.numActive
+      gr = groups[i]
+      if gr == j
+        continue
+      end
+      for ind in groupToIndex[gr]
+        res[column_ind] += x[ind] * A[ind, column_ind]
+      end
+    end
+    res[column_ind] += b[column_ind]
+  end
+  res
+end
+
+####################################################################################
 
 function _lasso!{T<:FloatingPoint}(
     x::StridedVector{T},
@@ -267,8 +412,88 @@ function feasible_lasso!{T<:FloatingPoint}(
   x
 end
 
-### todo:
-# groups lasso
+function _min_one_group!{T<:FloatingPoint}(
+    x::StridedVector{T},
+    A::SVD{T,T},
+    b::StridedVector{T},
+    λ::T;
+    options::LassoOptions   =   LassoOptions()
+    )
+  p = length(x)
+  lb = zero(T)
+  ub = zero(T)
+  #
+  x1 = A \ b
+  ub = norm(x1)
+  gn = ub - λ
+  U = A[:U]
+  D = A[:S]
+  Vt = A[:Vt]
+  while ub-lb > 1e-4
+    ##
+    BLAS.gemv!('T', -1., U, b, 0., x1)
+    for i=1:p
+      x1[i] = x1[i] / (D[i] + λ / gn)
+    end
+    At_mul_B!(x, Vt, x1)
+    ##
+    en = norm(x)
+    if abs(gn - en) < options.xtol
+      break
+    else
+      if en > gn
+        lb = gn
+      else
+        ub = gn
+      end
+      gn = (ub + lb) / 2.
+    end
+  end
+  x
+end
 
+
+function _group_lasso!{T<:FloatingPoint}(
+    x::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    λ::StridedVector{T},
+    activeset::GroupActiveSet,
+    svdVector::Vector;
+    options::LassoOptions   =   LassoOptions()
+    )
+
+  numActive = activeset.numActive
+  groups = activeset.groups
+  groupToIndex = activeset.groupToIndex
+  res = activeset._res
+  iter = 0
+  while true
+    iter += 1
+    maxUpdate = zero(T)
+    for i=1:activeset.numActive
+      j = group[i]
+
+      _Axkpb!(res, A, b, x, j, activeset)
+      group_norm = _group_norm(res, activeset, j)
+      if group_norm <= λ[j]
+        _fill_zero!(res, activeset, j)
+      else
+        bt = sub(res, groupToIndex[j])
+        xt = sub(x, groupToIndex[j])
+        ### minimize one group
+      end
+      #########################################33 check converged
+      if abs(x[j] - newValue) > maxUpdate
+        maxUpdate = abs(x[j] - newValue)
+      end
+      x[j] = newValue
+    end
+    if iter > options.max_inner_iter || maxUpdate < options.xtol
+      break
+    end
+  end
+  x
+end
 
 end
