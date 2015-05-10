@@ -18,11 +18,11 @@ facts("Group Active set") do
     groupToIndex[i] = UnitRange((i-1)*2+1, i*2)
   end
 
-  as = CDLasso.GroupActiveSet(zeros(6), groupToIndex)
+  as = CDLasso.GroupLassoData(zeros(6), groupToIndex)
   @fact as.numActive => 0
 
   x = [1., 0., 0., 0., 1., 2.]
-  as = CDLasso.GroupActiveSet(x, groupToIndex)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
   @fact as.numActive => 2
 
   @fact CDLasso._group_norm(x, as, 3) => roughly(sqrt(5))
@@ -34,7 +34,7 @@ facts("Group Active set") do
   A = eye(6)
   b = [1., 0., 0., 0., 1., 2.]
   x = zeros(6)
-  as = CDLasso.GroupActiveSet(x, groupToIndex)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
   λ = [0.9, 0., 3]
 
   CDLasso._add_violator!(as, x, A, b, λ)
@@ -44,7 +44,7 @@ facts("Group Active set") do
   A = eye(6)
   b = [1., 0., 0., 0., 1., 2.]
   x = zeros(6)
-  as = CDLasso.GroupActiveSet(x, groupToIndex)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
   λ = [1.9, 0., 1.]
 
   CDLasso._add_violator!(as, x, A, b, λ)
