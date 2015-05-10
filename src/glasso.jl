@@ -39,7 +39,7 @@ function GroupLassoData{T<:FloatingPoint, I}(
 end
 
 function _add_violator!{T<:FloatingPoint}(
-    activeset::GroupLassoData,
+    gld::GroupLassoData,
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -49,31 +49,34 @@ function _add_violator!{T<:FloatingPoint}(
   changed = false
 
   zerothr = options.zerothr
-  groups = activeset.groups
-  numActive = activeset.numActive
-  groupToIndex = activeset.groupToIndex
+  groups = gld.groups
+  numActive = gld.numActive
+  groupToIndex = gld.groupToIndex
   numElem = length(groups)
   # check for things to be removed from the active set
   i = 0
   @inbounds while i < numActive
     i = i + 1
     t = groups[i]
-    if _group_norm(x, activeset, t) < zerothr
-      _fill_zero!(x, activeset, t)
+    if ~isdefined(gld.Asvd, t)
+      gld.Asvd[t] = svdfact(sub(A, groupToIndex[t], groupToIndex[t]))
+    end
+    if _group_norm(x, gld, t) < zerothr
+      _fill_zero!(x, gld, t)
       changed = true
       groups[numActive], groups[i] = groups[i], groups[numActive]
       numActive -= 1
       i = i - 1
     end
   end
-  activeset.numActive = numActive
+  gld.numActive = numActive
 
-  btild = activeset.btild
+  btild = gld.btild
   I = 0
   V = zero(T)
   @inbounds for i=numActive+1:numElem
     t = groups[i]
-    group_norm = _Axkpb!(btild, A, b, x, t, activeset)
+    group_norm = _Axkpb!(btild, A, b, x, t, gld)
     nV = group_norm - λ[t]
     if V < nV
       I = i
@@ -81,25 +84,25 @@ function _add_violator!{T<:FloatingPoint}(
     end
   end
   if I > 0 && V > options.gradtol
-    gi = groups[I]
-    if ~isdefined(activeset.Asvd, gi)
-      activeset.Asvd[gi] = svdfact(sub(A, groupToIndex[gi], groupToIndex[gi]))
+    t = groups[I]
+    if ~isdefined(gld.Asvd, t)
+      gld.Asvd[t] = svdfact(sub(A, groupToIndex[t], groupToIndex[t]))
     end
     changed = true
     numActive += 1
     groups[numActive], groups[I] = groups[I], groups[numActive]
   end
-  activeset.numActive = numActive
+  gld.numActive = numActive
   changed
 end
 
 function _group_norm{T<:FloatingPoint}(
     x::StridedVector{T},
-    activeset::GroupLassoData{T},
+    gld::GroupLassoData{T},
     j::Int64
     )
   r = zero(T)
-  @inbounds for i in activeset.groupToIndex[j]
+  @inbounds for i in gld.groupToIndex[j]
     r += x[i]^2.
   end
   sqrt(r)
@@ -107,10 +110,10 @@ end
 
 function _fill_zero!{T<:FloatingPoint, I}(
     x::StridedVector{T},
-    activeset::GroupLassoData{T, I},
+    gld::GroupLassoData{T, I},
     j::Int64
     )
-  @inbounds for i in activeset.groupToIndex[j]
+  @inbounds for i in gld.groupToIndex[j]
     x[i] = zero(T)
   end
   x
@@ -124,25 +127,25 @@ function _Axkpb!{T<:FloatingPoint}(
     b::StridedVector{T},
     x::StridedVector{T},
     j::Int64,
-    activeset::GroupLassoData
+    gld::GroupLassoData
     )
   normRes = zero(T)
 
-  groups = activeset.groups
-  numActive = activeset.numActive
-  groupToIndex = activeset.groupToIndex
+  groups = gld.groups
+  numActive = gld.numActive
+  groupToIndex = gld.groupToIndex
 
   group_j = groupToIndex[j]
   indC = 0
   @inbounds for column_ind in group_j
     indC += 1
     res[indC] = zero(T)
-    @inbounds for i=1:activeset.numActive
+    for i=1:numActive
       gr = groups[i]
       if gr == j
         continue
       end
-      @inbounds for ind in groupToIndex[gr]
+      for ind in groupToIndex[gr]
         res[indC] += x[ind] * A[ind, column_ind]
       end
     end
@@ -151,8 +154,6 @@ function _Axkpb!{T<:FloatingPoint}(
   end
   sqrt(normRes)
 end
-
-
 
 function _tgemv!{T<:FloatingPoint}(
     β::T,
@@ -164,7 +165,7 @@ function _tgemv!{T<:FloatingPoint}(
   nr, nc = size(A)
   @inbounds for c=1:nc
     v = zero(T)
-    @inbounds for r=1:nr
+    for r=1:nr
       v += b[r] * A[r, c]
     end
     out[c] = out[c] * α + β*v
@@ -183,7 +184,6 @@ function _min_one_group!{T<:FloatingPoint}(
     )
 
   gjToIndex = gld.groupToIndex[j]
-  btilde = gld.btilde
   x1 = gld.x1
   Utb = gld.Utb
   U = A[:U]
@@ -192,7 +192,7 @@ function _min_one_group!{T<:FloatingPoint}(
 
   group_len = size(U, 1)
   gn = zero(T)
-  for i=1:group_len
+  @inbounds for i=1:group_len
     gn += b[i]^2.
   end
   gn = sqrt(gn) - λ
@@ -200,24 +200,24 @@ function _min_one_group!{T<:FloatingPoint}(
   ub = gn / D[end]
   #
   _tgemv!(-1., U, b, 0., Utb)
-  while ub-lb > 1e-4
+  @inbounds while true
     ##
-    @inbounds for i=1:group_len
+    for i=1:group_len
       x1[i] = Utb[i] / (D[i] + λ / gn)
     end
     #     At_mul_B!(x, Vt, x1)
     en = zero(T)
-    @inbounds for i=1:group_len
+    for i=1:group_len
       xind = gjToIndex[i]
       x[xind] = zero(T)
       for j=1:group_len
-        x[ind] += Vt[i, j] * x1[j]
+        x[xind] += Vt[j, i] * x1[j]
       end
-      en += x[ind]^2.
+      en += x[xind]^2.
     end
     en = sqrt(en)
     ##
-    if abs(gn - en) < options.xtol
+    if abs(gn - en) < options.xtol || ub - lb < options.xtol
       break
     else
       if en > gn
@@ -231,49 +231,90 @@ function _min_one_group!{T<:FloatingPoint}(
   x
 end
 
-
 function _group_lasso!{T<:FloatingPoint}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
     λ::StridedVector{T},
-    activeset::GroupLassoData,
-    svdVector::Vector;
+    gld::GroupLassoData;
     options::LassoOptions   =   LassoOptions()
     )
 
-  numActive = activeset.numActive
-  groups = activeset.groups
-  groupToIndex = activeset.groupToIndex
-  res = activeset._res
+  numActive = gld.numActive
+  groups = gld.groups
+  groupToIndex = gld.groupToIndex
+  btild = gld.btild
+  xold = gld.xold
+
   iter = 0
-  while true
+  @inbounds while true
     iter += 1
     maxUpdate = zero(T)
-    for i=1:activeset.numActive
-      j = group[i]
-
-      _Axkpb!(res, A, b, x, j, activeset)
-      group_norm = _group_norm(res, activeset, j)
+    for i=1:numActive
+      j = groups[i]
+      group_norm = _Axkpb!(btild, A, b, x, j, gld)
       if group_norm <= λ[j]
-        _fill_zero!(res, activeset, j)
+        _fill_zero!(x, gld, j)
       else
-        bt = sub(res, groupToIndex[j])
-        xt = sub(x, groupToIndex[j])
-        ### minimize one group
+        _min_one_group!(x, gld.Asvd[j], btild, gld, j, λ[j]; options=options)
       end
-      #########################################33 check converged
-      if abs(x[j] - newValue) > maxUpdate
-        maxUpdate = abs(x[j] - newValue)
+      # compute norm of change
+      norm_diff = zero(T)
+      for k in groupToIndex[j]
+        norm_diff += (x[k] - xold[k])^2.
       end
-      x[j] = newValue
+      norm_diff = sqrt(norm_diff)
+      if norm_diff > maxUpdate
+        maxUpdate = norm_diff
+      end
     end
     if iter > options.max_inner_iter || maxUpdate < options.xtol
       break
     end
+    copy!(xold, x)
   end
   x
 end
+
+
+
+group_lasso!{T<:FloatingPoint, I}(
+    x::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    λ::T,
+    groupToIndex::Vector{I};
+    options::LassoOptions   =   LassoOptions(),
+    gld                     =   nothing
+    ) = group_lasso!(x, A, b, fill(λ, length(groupToIndex)), groupToIndex; options=options, gld=gld)
+
+
+
+function group_lasso!{T<:FloatingPoint, I}(
+    x::StridedVector{T},
+    A::StridedMatrix{T},
+    b::StridedVector{T},
+    λ::StridedVector{T},
+    groupToIndex::Vector{I};
+    options::LassoOptions   =   LassoOptions(),
+    gld                     =   nothing
+    )
+
+  maxoutiter = options.max_outer_iter
+  if is(gld, nothing)
+    gld = GroupLassoData(x, groupToIndex; options=options)
+  end
+  _add_violator!(gld, x, A, b, λ; options=options)
+
+  for outiter=1:maxoutiter
+    _group_lasso!(x, A, b, λ, gld; options=options)
+    if ~_add_violator!(gld, x, A, b, λ; options=options)
+      break
+    end
+  end
+  x, gld
+end
+
 
 
 

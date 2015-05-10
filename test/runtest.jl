@@ -52,6 +52,188 @@ facts("Group Active set") do
   @fact as.groups[1] => 3
 end
 
+facts("Minimize one group") do
+  numGroups = 1
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*3+1, i*3)
+  end
+
+  b = [1., 1., 1.]
+  A = eye(3)
+  Asvd = svdfact(A)
+  λ = 1.
+  x = zeros(3)
+
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, fill(λ, 3))
+  CDLasso._min_one_group!(x, Asvd, b, as, 1, λ)
+
+  @fact A*x+b+(λ/norm(x))*x => roughly(zeros(3); atol=1e-5)
+
+  ##
+
+  A = randn(100, 3)
+  A = A'A/100
+  Asvd = svdfact(A)
+  b = [1., 1., 1.]
+  λ = 1.
+  x = zeros(3)
+
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, fill(λ, 3))
+  CDLasso._min_one_group!(x, Asvd, b, as, 1, λ)
+
+  @fact A*x+b+(λ/norm(x))*x => roughly(zeros(3); atol=1e-5)
+
+  ##
+  numGroups = 1
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*10+1, i*10)
+  end
+
+  A = randn(100, 10)
+  A = A'A/100
+  Asvd = svdfact(A)
+  b = randn(10)
+  λ = 0.5
+  x = zeros(10)
+
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, fill(λ, 10))
+  CDLasso._min_one_group!(x, Asvd, b, as, 1, λ)
+
+  @fact A*x+b+(λ/norm(x))*x => roughly(zeros(10); atol=1e-5)
+
+end
+
+facts("Minimize active set") do
+  numGroups = 2
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*3+1, i*3)
+  end
+
+  b = ones(6)
+  A = eye(6)
+  λ = [1., 0.5]
+
+  x = ones(6)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, λ)
+
+  CDLasso._group_lasso!(x, A, b, λ, as)
+
+  for i=1:numGroups
+    @fact A[groupToIndex[i], :]*x + b[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]]  => roughly(zeros(length(groupToIndex[i])); atol=1e-5)
+  end
+
+
+  ##
+
+  numGroups = 2
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*3+1, i*3)
+  end
+
+  b = randn(6)
+  A = randn(100, 6)
+  A = A'A/100
+  λ = [1., 0.5]
+
+  x = ones(6)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, λ)
+
+  CDLasso._group_lasso!(x, A, b, λ, as)
+
+  for i=1:numGroups
+    @fact A[groupToIndex[i], :]*x + b[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]]  => roughly(zeros(length(groupToIndex[i])); atol=1e-5)
+  end
+
+  ##
+
+  numGroups = 2
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*3+1, i*3)
+  end
+
+  b = randn(6)
+  A = randn(100, 6)
+  A = A'A/100
+  λ = [100., 0.1]
+
+  x = ones(6)
+  as = CDLasso.GroupLassoData(x, groupToIndex)
+  CDLasso._add_violator!(as, x, A, b, λ)
+
+  CDLasso._group_lasso!(x, A, b, λ, as)
+
+  i = 1
+  @fact norm(A[groupToIndex[i], :]*x + b[groupToIndex[i]]) <= λ[i]  => true
+  i = 2
+  @fact A[groupToIndex[i], :]*x + b[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]]  => roughly(zeros(length(groupToIndex[i])); atol=1e-4)
+end
+
+
+facts("Group Lasso") do
+  numGroups = 200
+  groupToIndex = Array(typeof(1:2), numGroups)
+  for i=1:numGroups
+    groupToIndex[i] = UnitRange((i-1)*5+1, i*5)
+  end
+
+  n = 400
+  p = 1000
+  X = randn(n, p)
+  Y = X[:,1:50] * ones(50) + 0.1 * randn(n)
+  XX = X' * X / n
+  Xyn = -X' * Y / n
+
+  λ = 0.4 .* ones(numGroups)
+  x = zeros(p)
+  CDLasso.group_lasso!(x, XX, Xyn, λ, groupToIndex)
+
+  for i=1:200
+    if norm(x[groupToIndex[i]]) < 1e-6
+      @fact norm(XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]]) <= λ[i] + 1e-4  => true
+    else
+      @fact XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]] => roughly(zeros(length(groupToIndex[i])); atol=1e-4)
+    end
+  end
+
+
+  λ = 0.01 .* ones(numGroups)
+  x = zeros(p)
+  CDLasso.group_lasso!(x, XX, Xyn, λ, groupToIndex)
+
+  for i=1:200
+    if norm(x[groupToIndex[i]]) < 1e-6
+      @fact norm(XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]]) <= λ[i] + 1e-4  => true
+    else
+      @fact XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]] => roughly(zeros(length(groupToIndex[i])); atol=1e-4)
+    end
+  end
+
+
+  λ = 40 .* ones(numGroups)
+  x = zeros(p)
+  CDLasso.group_lasso!(x, XX, Xyn, λ, groupToIndex)
+
+  for i=1:200
+    if norm(x[groupToIndex[i]]) < 1e-6
+      @fact norm(XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]]) <= λ[i] + 1e-4  => true
+    else
+      @fact XX[groupToIndex[i], :]*x + Xyn[groupToIndex[i]] + (λ[i]/norm(x[groupToIndex[i]]))*x[groupToIndex[i]] => roughly(zeros(length(groupToIndex[i])); atol=1e-4)
+    end
+  end
+
+
+end
+
 ##############################################
 #
 #  Lasso
