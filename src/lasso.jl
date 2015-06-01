@@ -12,7 +12,7 @@ function ActiveSet{T<:FloatingPoint}(
   numElem = length(x)
   activeset = [1:numElem;]
   numActive = 0
-  for j = 1:numElem
+  @inbounds for j = 1:numElem
     if abs(x[j]) >= zero_thr
       numActive += 1
       activeset[numActive], activeset[j] = activeset[j], activeset[numActive]
@@ -52,7 +52,7 @@ function _add_violator!{T<:FloatingPoint}(
 
   I = 0
   V = zero(T)
-  for i=numActive+1:numElem
+  @inbounds for i=numActive+1:numElem
     t = indexes[i]
     tmp = _Axk(A, x, t, activeset) + b[t]
     nV = abs(tmp) - λ[t]
@@ -80,7 +80,7 @@ shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T)
 function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int64, activeset::ActiveSet)
   s = zero(T)
   indexes = activeset.indexes
-  for i=1:activeset.numActive
+  @inbounds for i=1:activeset.numActive
     ind = indexes[i]
     s += x[ind] * A[ind, j]
   end
@@ -102,7 +102,7 @@ function _lasso!{T<:FloatingPoint}(
   while true
     iter += 1
     maxUpdate = zero(T)
-    for i=1:activeset.numActive
+    @inbounds for i=1:activeset.numActive
       j = indexes[i]
       a = A[j, j]
       S0 = _Axk(A, x, j, activeset) - a * x[j] + b[j]
