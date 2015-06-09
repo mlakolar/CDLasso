@@ -3,6 +3,8 @@ module CDLasso
 import Base.LinAlg.BLAS
 import Base.LinAlg.SVD
 
+export lasso!, LassoOptions
+
 #######################################################################
 
 type LassoOptions
