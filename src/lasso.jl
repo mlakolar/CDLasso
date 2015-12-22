@@ -4,7 +4,7 @@ type ActiveSet
 end
 
 
-function ActiveSet{T<:FloatingPoint}(
+function ActiveSet{T<:AbstractFloat}(
     x::StridedVector{T};
     options::LassoOptions = LassoOptions()
     )
@@ -21,7 +21,7 @@ function ActiveSet{T<:FloatingPoint}(
   ActiveSet(activeset, numActive)
 end
 
-function _add_violator!{T<:FloatingPoint}(
+function _add_violator!{T<:AbstractFloat}(
     activeset::ActiveSet,
     x::StridedVector{T},
     A::StridedMatrix{T},
@@ -72,12 +72,12 @@ end
 
 #######################################################################
 
-shrink{T<:FloatingPoint}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
+shrink{T<:AbstractFloat}(v::T, c::T) = v > c ? v - c : (v < -c ? v + c : zero(T))
 
 #######################################################################
 
 # computes x'A[:, j]
-function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int64, activeset::ActiveSet)
+function _Axk{T<:AbstractFloat}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int64, activeset::ActiveSet)
   s = zero(T)
   indexes = activeset.indexes
   @inbounds for i=1:activeset.numActive
@@ -88,7 +88,7 @@ function _Axk{T<:FloatingPoint}(A::StridedMatrix{T}, x::StridedVector{T}, j::Int
 end
 
 
-function _lasso!{T<:FloatingPoint}(
+function _lasso!{T<:AbstractFloat}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -119,7 +119,7 @@ function _lasso!{T<:FloatingPoint}(
   x
 end
 
-lasso!{T<:FloatingPoint}(
+lasso!{T<:AbstractFloat}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -127,7 +127,7 @@ lasso!{T<:FloatingPoint}(
     options::LassoOptions   =   LassoOptions()
     ) = lasso!(x, A, b, fill(λ, length(x)); options=options)
 
-function lasso!{T<:FloatingPoint}(
+function lasso!{T<:AbstractFloat}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},

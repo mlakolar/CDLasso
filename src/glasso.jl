@@ -1,4 +1,4 @@
-type GroupLassoData{T<:FloatingPoint, I}
+type GroupLassoData{T<:AbstractFloat, I}
   groups::Vector{Int64}
   numActive::Int64
   groupToIndex::Vector{I}
@@ -11,7 +11,7 @@ type GroupLassoData{T<:FloatingPoint, I}
 end
 
 
-function GroupLassoData{T<:FloatingPoint, I}(
+function GroupLassoData{T<:AbstractFloat, I}(
     x::StridedVector{T},
     groupToIndex::Vector{I};
     options::LassoOptions = LassoOptions()
@@ -38,7 +38,7 @@ function GroupLassoData{T<:FloatingPoint, I}(
                        )
 end
 
-function _add_violator!{T<:FloatingPoint}(
+function _add_violator!{T<:AbstractFloat}(
     gld::GroupLassoData,
     x::StridedVector{T},
     A::StridedMatrix{T},
@@ -96,7 +96,7 @@ function _add_violator!{T<:FloatingPoint}(
   changed
 end
 
-function _group_norm{T<:FloatingPoint}(
+function _group_norm{T<:AbstractFloat}(
     x::StridedVector{T},
     gld::GroupLassoData{T},
     j::Int64
@@ -108,7 +108,7 @@ function _group_norm{T<:FloatingPoint}(
   sqrt(r)
 end
 
-function _fill_zero!{T<:FloatingPoint, I}(
+function _fill_zero!{T<:AbstractFloat, I}(
     x::StridedVector{T},
     gld::GroupLassoData{T, I},
     j::Int64
@@ -121,7 +121,7 @@ end
 
 # computes x[-gj]'A[-gj, gj] + b[gj]'
 # returns norm of res
-function _Axkpb!{T<:FloatingPoint}(
+function _Axkpb!{T<:AbstractFloat}(
     res::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -155,7 +155,7 @@ function _Axkpb!{T<:FloatingPoint}(
   sqrt(normRes)
 end
 
-function _tgemv!{T<:FloatingPoint}(
+function _tgemv!{T<:AbstractFloat}(
     β::T,
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -173,7 +173,7 @@ function _tgemv!{T<:FloatingPoint}(
   out
 end
 
-function _min_one_group!{T<:FloatingPoint}(
+function _min_one_group!{T<:AbstractFloat}(
     x::StridedVector{T},
     A::SVD{T,T},
     b::StridedVector{T},
@@ -231,7 +231,7 @@ function _min_one_group!{T<:FloatingPoint}(
   x
 end
 
-function _group_lasso!{T<:FloatingPoint}(
+function _group_lasso!{T<:AbstractFloat}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -278,7 +278,7 @@ end
 
 
 
-group_lasso!{T<:FloatingPoint, I}(
+group_lasso!{T<:AbstractFloat, I}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},
@@ -290,7 +290,7 @@ group_lasso!{T<:FloatingPoint, I}(
 
 
 
-function group_lasso!{T<:FloatingPoint, I}(
+function group_lasso!{T<:AbstractFloat, I}(
     x::StridedVector{T},
     A::StridedMatrix{T},
     b::StridedVector{T},

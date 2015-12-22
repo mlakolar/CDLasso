@@ -40,7 +40,7 @@ include("glasso.jl")
 
 ####################################################################################
 
-function _penalty_loadings!{T<:FloatingPoint}(
+function _penalty_loadings!{T<:AbstractFloat}(
     γ::StridedVector{T},
     λ::StridedVector{T},
     X::StridedMatrix{T},
@@ -59,7 +59,7 @@ function _penalty_loadings!{T<:FloatingPoint}(
 end
 
 # numIterations that estimate Gamma matrix
-function feasible_lasso!{T<:FloatingPoint}(
+function feasible_lasso!{T<:AbstractFloat}(
     x::StridedVector{T},
     X::StridedMatrix{T},
     Y::StridedVector{T},
